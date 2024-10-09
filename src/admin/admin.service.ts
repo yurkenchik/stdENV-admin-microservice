@@ -1,27 +1,40 @@
-import {HttpException, Injectable, InternalServerErrorException} from "@nestjs/common";
+import {HttpException, Inject, Injectable, InternalServerErrorException, NotFoundException} from "@nestjs/common";
 import {InjectRepository} from "@nestjs/typeorm";
 import {User} from "@studENV/shared/dist/entities/user.entity";
 import {Repository, UpdateResult} from "typeorm";
+import {Role} from "@studENV/shared/dist/entities/role.entity";
 import {RoleEnum} from "@studENV/shared/dist/utils/role.enum";
+import {AdminRepository} from "./admin-repository.abstract";
+import {firstValueFrom} from "rxjs";
+import {ClientProxy} from "@nestjs/microservices";
 
 @Injectable()
-export class AdminService {
+export class AdminService extends AdminRepository {
 
     constructor(
         @InjectRepository(User)
-        private readonly userRepository: Repository<User>
-    ) {}
+        private readonly userRepository: Repository<User>,
+        @InjectRepository(Role)
+        private readonly roleRepository: Repository<Role>,
+        @Inject("NATS_SERVICE")
+        private readonly natsClient: ClientProxy
+    ) {
+        super();
+    }
 
     teacherDataFieldsToSelect: Array<string> = ["id", "firstname", "lastname", "email", "age", "teacherCertificate"];
 
-    async getTeachersRequestsWithCertificates(): Promise<Array<Partial<User>>>
-    {
+    async getTeachersRequestsWithCertificates(): Promise<Array<Partial<User>>> {
         try {
             const teacherRequests = await this.userRepository
                 .createQueryBuilder()
                 .where("teacherCertificate != null")
                 .select(this.teacherDataFieldsToSelect)
                 .getMany();
+
+            if (!teacherRequests) {
+                throw new NotFoundException("Teacher requests not found");
+            }
 
             return teacherRequests;
         } catch (error) {
@@ -32,33 +45,31 @@ export class AdminService {
         }
     }
 
-    // async approveTeacher(teacherId: string): Promise<Partial<User>>
-    // {
-    //     try {
-    //         const teacher = await this.userRepository
-    //             .createQueryBuilder()
-    //             .where("id = :teacherId", { teacherId: teacherId })
-    //             .getOne();
-    //
-    //         const role = await this.role
-    //         teacher.role = RoleEnum.TEACHER;
-    //         await this.userRepository.save(teacher);
-    //         return teacher;
-    //     } catch (error) {
-    //         if (error instanceof HttpException) {
-    //             throw error;
-    //         }
-    //         throw new InternalServerErrorException(error.message);
-    //     }
-    // }
-
-    async banUser(userId: string, banReason: string): Promise<Partial<User>>
-    {
+    async approveTeacher(userId: string): Promise<void> {
         try {
-            const user = await this.userRepository
+            const teacherRole = await this.roleRepository
                 .createQueryBuilder()
-                .where("id = :userId", { userId: userId })
+                .where("role = :role", { role: RoleEnum.TEACHER })
                 .getOne();
+
+            await this.userRepository
+                .createQueryBuilder()
+                .where("id = :userId", { userId })
+                .update({ role: teacherRole })
+                .execute();
+        } catch (error) {
+            if (error instanceof HttpException) {
+                throw error;
+            }
+            throw new InternalServerErrorException(error.message);
+        }
+    }
+
+    async banUser(userId: string, banReason: string): Promise<Partial<User>> {
+        try {
+            const user = await firstValueFrom(
+                this.natsClient.send({ cmd: "getUserById" }, userId)
+            );
 
             const userUpdateResult: UpdateResult = await this.userRepository
                 .createQueryBuilder()
@@ -79,13 +90,11 @@ export class AdminService {
         }
     }
 
-    async cancelUserBan(userId: string): Promise<Partial<User>>
-    {
+    async cancelUserBan(userId: string): Promise<Partial<User>> {
         try {
-            const user = await this.userRepository
-                .createQueryBuilder()
-                .where("id = :userId", { userId: userId })
-                .getOne();
+            const user = await firstValueFrom(
+                this.natsClient.send({ cmd: "getUserById" }, userId)
+            );
 
             const updateUserResult = await this.userRepository
                 .createQueryBuilder()

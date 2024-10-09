@@ -13,17 +13,14 @@ export class AdminMicroserviceController {
     @MessagePattern({ cmd: "getTeachersRequestsWithCertificates" })
     async getTeachersRequestsWithCertificates(
         @Payload() userId: string
-    ): Promise<Array<Partial<User>>>
-    {
+    ): Promise<Array<Partial<User>>> {
         return await this.adminService.getTeachersRequestsWithCertificates();
     }
-    //
-    // @MessagePattern({ cmd: "approveTeacher" })
-    // async approveTeacher(
-    //     @Payload() userId: string
-    // ): Promise<Partial<User>>
-    // {
-    //     return await this.adminService.approveTeacher(userId);
-    // }
 
+    @MessagePattern({ cmd: "approveTeacher" })
+    async approveTeacher(
+        @Payload() userId: string
+    ): Promise<void> {
+        return await this.adminService.approveTeacher(userId);
+    }
 }
