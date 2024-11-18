@@ -22,7 +22,7 @@ export class AdminService extends AdminRepository {
         super();
     }
 
-    teacherDataFieldsToSelect: Array<string> = ["id", "firstname", "lastname", "email", "age", "teacherCertificate"];
+    private teacherDataFieldsToSelect: Array<string> = ["id", "firstname", "lastname", "email", "age", "teacherCertificate"];
 
     async getTeachersRequestsWithCertificates(): Promise<Array<Partial<User>>> {
         try {
@@ -51,6 +51,10 @@ export class AdminService extends AdminRepository {
                 .createQueryBuilder()
                 .where("role = :role", { role: RoleEnum.TEACHER })
                 .getOne();
+
+            if (!teacherRole) {
+                throw new NotFoundException("Role not found");
+            }
 
             await this.userRepository
                 .createQueryBuilder()
@@ -116,5 +120,4 @@ export class AdminService extends AdminRepository {
             throw new InternalServerErrorException(error.message);
         }
     }
-
 }
